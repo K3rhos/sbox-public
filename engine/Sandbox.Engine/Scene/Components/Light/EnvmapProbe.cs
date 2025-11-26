@@ -35,7 +35,7 @@ public sealed class EnvmapProbe : Component, Component.ExecuteInEditor
 	/// <summary>
 	/// Enable time slicing to spread cubemap rendering across multiple frames
 	/// </summary>
-	[Property, ToggleGroup(nameof(RenderDynamically))]
+	[Property, ToggleGroup( nameof( RenderDynamically ) )]
 	public bool TimeSlicing { get; set; } = false;
 
 	/// <summary>
@@ -47,7 +47,7 @@ public sealed class EnvmapProbe : Component, Component.ExecuteInEditor
 	/// Track if we're in the middle of a time-sliced render
 	/// </summary>
 	private bool _isTimeSlicing = false;
-	
+
 	Texture _dynamicTexture;
 
 	public bool Dirty;
@@ -95,7 +95,7 @@ public sealed class EnvmapProbe : Component, Component.ExecuteInEditor
 
 		_dynamicTexture?.Dispose();
 		_dynamicTexture = null;
-		
+
 		_isTimeSlicing = false;
 		_currentFace = 0;
 	}
@@ -292,9 +292,9 @@ public sealed class EnvmapProbe : Component, Component.ExecuteInEditor
 	internal bool IsReadyToUpdate()
 	{
 		// If we're in the middle of time slicing, always continue
-		if (_isTimeSlicing)
+		if ( _isTimeSlicing )
 			return true;
-		
+
 		// If it's dirty, always update even if we're render once
 		if ( _sceneObject?.RequiresUpdate ?? false )
 			return true;
@@ -367,19 +367,19 @@ public sealed class EnvmapProbe : Component, Component.ExecuteInEditor
 
 			// Render current face
 			CubemapRendering.RenderSingleFace(
-				Scene.SceneWorld, 
-				_dynamicTexture, 
-				WorldTransform.WithScale(1), 
-				ZNear.Clamp(1, ZFar), 
-				ZFar.Clamp(ZNear, 1024 * 16), 
+				Scene.SceneWorld,
+				_dynamicTexture,
+				WorldTransform.WithScale( 1 ),
+				ZNear.Clamp( 1, ZFar ),
+				ZFar.Clamp( ZNear, 1024 * 16 ),
 				_currentFace,
 				filterType
 			);
-			
+
 			_currentFace++;
 
 			// Check if we've rendered all 6 faces
-			if (_currentFace >= 6)
+			if ( _currentFace >= 6 )
 			{
 				// All faces rendered, finalize
 				_isTimeSlicing = false;
@@ -401,11 +401,11 @@ public sealed class EnvmapProbe : Component, Component.ExecuteInEditor
 		{
 			// Original behavior (Render all faces at once)
 			CubemapRendering.Render(
-				Scene.SceneWorld, 
-				_dynamicTexture, 
-				WorldTransform.WithScale(1), 
-				ZNear.Clamp(1, ZFar), 
-				ZFar.Clamp(ZNear, 1024 * 16), 
+				Scene.SceneWorld,
+				_dynamicTexture,
+				WorldTransform.WithScale( 1 ),
+				ZNear.Clamp( 1, ZFar ),
+				ZFar.Clamp( ZNear, 1024 * 16 ),
 				filterType
 			);
 

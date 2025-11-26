@@ -11,7 +11,7 @@ namespace Sandbox;
 internal static class CubemapRendering
 {
 	static ComputeShader EnvmapFilter = new( "envmap_filtering_cs" );
-	
+
 	/// <summary>
 	/// Specifies the quality level for GGX filtering of environment maps.
 	/// </summary>
@@ -71,7 +71,7 @@ internal static class CubemapRendering
 
 		camera.RenderToCubeTexture( cubemapTexture );
 	}
-	
+
 	/// <summary>
 	/// Renders single face of a cubemap from a scene at the specified transform position and applies filtering.
 	/// </summary>
@@ -86,7 +86,7 @@ internal static class CubemapRendering
 	{
 		if ( faceIndex < 0 || faceIndex >= 6 )
 			return;
-		
+
 		SceneCamera camera = new SceneCamera( "CubemapRendering" );
 		camera.FieldOfView = 90;
 		camera.ZNear = znear;
@@ -102,7 +102,7 @@ internal static class CubemapRendering
 			{
 				if ( stage != Stage.AfterPostProcess )
 					return;
-				
+
 				Filter( cubemapTexture, filterType ).ExecuteOnRenderThread();
 			};
 		}
