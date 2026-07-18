@@ -915,6 +915,28 @@ public class NetworkTest
 		Assert.AreEqual( 0, CreateMsgCount( clientAndHost.Client ) );
 	}
 
+	[TestMethod]
+	public void SerializeNetworkObjectsMarksCreateMessageSent()
+	{
+		using var scope = new Scene().Push();
+		using var clientAndHost = new ClientAndHost( TypeLibrary );
+		clientAndHost.BecomeHost();
+
+		GameObject go;
+		using ( SceneNetworkSystem.SuppressSpawnMessages() )
+			go = SpawnNetworked( visible: true );
+
+		var collection = new List<object>();
+		Game.ActiveScene.SerializeNetworkObjects( clientAndHost.Client, collection );
+
+		Assert.IsTrue( collection.OfType<ObjectCreateMsg>().Any( m => m.Guid == go.Id ),
+			"Object should have been serialized into the snapshot" );
+
+		go._net.EnsureCreateMessageSent( clientAndHost.Client );
+
+		Assert.AreEqual( 0, CreateMsgCount( clientAndHost.Client ) );
+	}
+
 	// Spawns a cullable (not AlwaysTransmit) networked object with controllable visibility.
 	private static GameObject SpawnNetworked( bool visible )
 	{
