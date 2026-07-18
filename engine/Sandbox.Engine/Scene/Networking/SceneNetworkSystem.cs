@@ -325,15 +325,6 @@ public partial class SceneNetworkSystem : GameNetworkSystem
 		GetSnapshot( connection, ref snapshot );
 		output.Snapshot = snapshot;
 
-		foreach ( var networkObjectData in snapshot.NetworkObjects )
-		{
-			if ( networkObjectData is not ObjectCreateMsg createMessage )
-				continue;
-
-			var networkGameObject = activeScene.Directory.FindByGuid( createMessage.Guid );
-			networkGameObject?._net?.MarkCreateMessageSent( connection );
-		}
-
 		var bs = ByteStream.Create( 256 );
 		bs.Write( InternalMessageType.Packed );
 
