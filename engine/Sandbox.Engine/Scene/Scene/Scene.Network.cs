@@ -91,6 +91,9 @@ public partial class Scene : GameObject
 				|| (root != target && (root?.ShouldIncludeInSnapshot( source ) ?? false)) )
 			{
 				collection.Add( target.GetCreateMessage() );
+
+				if ( source is not null )
+					target.MarkCreateMessageSent( source );
 			}
 		}
 	}
