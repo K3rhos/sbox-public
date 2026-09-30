@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
+using DiagnosticSeverity = Microsoft.CodeAnalysis.DiagnosticSeverity;
 
 namespace Editor.Mcp;
 
@@ -139,10 +140,12 @@ internal static class TopLevelTools
 	}
 
 	[McpTool.ReadOnly( "editor_status" ), McpListed]
-	[Description( "Get the current state of the editor - engine version, which project is open, the active scene and whether it has unsaved changes, whether play mode is running or paused, how many tools are registered, and the directory paths that matter (logs, project code and assets)." )]
+	[Description( "Get the current state of the editor - engine version, which project is open, the active scene and whether it has unsaved changes, whether play mode is running or paused, how many tools are registered, the directory paths that matter (logs, project code and assets), and the state of the code compiler. Check IsCompiling/LastCompileSucceeded here after editing code instead of relying on read_console - a successful compile can scroll out of view or be mistaken for the last failure you saw." )]
 	public static EditorStatus GetEditorStatus()
 	{
-		var scene = Game.ActiveScene;
+		var scene = SceneEditorSession.Active?.Scene ?? Game.ActiveScene;
+		var compileGroup = Project.CompileGroup;
+		var buildResult = compileGroup?.BuildResult;
 
 		return new EditorStatus
 		{
@@ -155,6 +158,9 @@ internal static class TopLevelTools
 			IsPlaying = Game.IsPlaying,
 			IsPaused = Game.IsPaused,
 			ToolCount = ToolRegistry.All().Count(),
+			IsCompiling = compileGroup is not null && (compileGroup.IsBuilding || compileGroup.NeedsBuild),
+			LastCompileSucceeded = buildResult is { Diagnostics: not null } r ? r.Success : null,
+			LastCompileErrors = buildResult?.Diagnostics?.Count( x => x.Severity == DiagnosticSeverity.Error ) ?? 0,
 			Paths = new EditorPaths
 			{
 				Engine = FileSystem.Root.GetFullPath( "/" ),
@@ -166,26 +172,28 @@ internal static class TopLevelTools
 	}
 
 	[McpTool.ReadOnly( "read_console" ), McpListed]
-	[Description( "Read recent console output, oldest first - what the editor and game logged: prints, warnings, errors, exceptions, compile results. This is how you see the effect of what you just did. Errors come with the top of their stack trace." )]
+	[Description( "Read recent console output, oldest first - what the editor and game logged: prints, warnings, errors, exceptions, compile results. This is how you see the effect of what you just did. Errors come with the top of their stack trace. Every read ends with a cursor - pass it back as 'since' next time to get only what was logged after it, instead of re-reading the same output." )]
 	public static object ReadConsole(
 		[Description( "How many of the most recent matching entries to return." ), Range( 1, 500 )] int limit = 50,
 		[Description( "Lowest severity to include." )] LogLevel minimumLevel = LogLevel.Trace,
-		[Description( "Only entries whose message or logger name contains this, case insensitive." )] string filter = "" )
+		[Description( "Only entries whose message or logger name contains this, case insensitive." )] string filter = "",
+		[Description( "Cursor from a previous read - only entries logged after it come back. 0 reads the most recent." )] long since = 0 )
 	{
 		var snapshot = LogBuffer.Snapshot();
+		var cursor = snapshot.Length == 0 ? 0 : snapshot[^1].Sequence;
 
-		var matching = snapshot.Where( x => x.Level >= minimumLevel );
+		var matching = snapshot.Where( x => x.Sequence > since && x.Event.Level >= minimumLevel );
 
 		if ( !string.IsNullOrWhiteSpace( filter ) )
 		{
-			matching = matching.Where( x => (x.Message?.Contains( filter, StringComparison.OrdinalIgnoreCase ) ?? false)
-				|| (x.Logger?.Contains( filter, StringComparison.OrdinalIgnoreCase ) ?? false) );
+			matching = matching.Where( x => (x.Event.Message?.Contains( filter, StringComparison.OrdinalIgnoreCase ) ?? false)
+				|| (x.Event.Logger?.Contains( filter, StringComparison.OrdinalIgnoreCase ) ?? false) );
 		}
 
-		var entries = matching.TakeLast( limit ).ToArray();
+		var entries = matching.TakeLast( limit ).Select( x => x.Event ).ToArray();
 
 		if ( entries.Length == 0 )
-			return $"No matching console output ({snapshot.Length} entries buffered).";
+			return $"No matching console output ({snapshot.Length} entries buffered). Cursor: {cursor}";
 
 		var builder = new StringBuilder();
 
@@ -208,6 +216,8 @@ internal static class TopLevelTools
 				}
 			}
 		}
+
+		builder.Append( $"Cursor: {cursor}" );
 
 		return builder.ToString();
 	}
@@ -239,6 +249,22 @@ internal class EditorStatus
 	public bool IsPlaying { get; set; }
 	public bool IsPaused { get; set; }
 	public int ToolCount { get; set; }
+
+	/// <summary>
+	/// Whether the project's code compiler is currently building, or has changes queued to build.
+	/// </summary>
+	public bool IsCompiling { get; set; }
+
+	/// <summary>
+	/// Whether the most recent finished compile succeeded. Null if no compile has happened yet.
+	/// </summary>
+	public bool? LastCompileSucceeded { get; set; }
+
+	/// <summary>
+	/// Error count from the most recent finished compile - only meaningful when LastCompileSucceeded is false.
+	/// </summary>
+	public int LastCompileErrors { get; set; }
+
 	public EditorPaths Paths { get; set; }
 }
 

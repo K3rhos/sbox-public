@@ -140,6 +140,8 @@ public static class Directory
 	/// </summary>
 	static void TryMountFilesystem( string name )
 	{
+		using var scope = GlobalContext.MenuScope();
+
 		var path = EngineFileSystem.Root.GetFullPath( $"/mount/{name}/assets" );
 		if ( string.IsNullOrWhiteSpace( path ) ) return;
 		if ( !System.IO.Directory.Exists( path ) ) return;
@@ -233,6 +235,12 @@ class SteamIntegration : ISteamIntegration
 	{
 		if ( !NativeEngine.Steam.SteamApps().IsValid ) return false;
 		return NativeEngine.Steam.SteamApps().BIsAppInstalled( (int)appid );
+	}
+
+	public bool IsAppOwned( long appid )
+	{
+		if ( !NativeEngine.Steam.SteamApps().IsValid ) return false;
+		return NativeEngine.Steam.SteamApps().BIsSubscribedApp( (int)appid );
 	}
 
 	public bool IsDlcInstalled( long appid )

@@ -1,29 +1,32 @@
 ﻿@using System;
 @using MenuProject.MenuUI.Popups
+@using MenuProject;
 @using Sandbox;
 @using Sandbox.UI;
 
 @namespace MenuProject.Social
 
 <root class="@CssClasses" onclick=@ShowFriendPopup>
-	<div class="avatar" style="background-image: url( avatar:@Friend.Id )" />
+	<div class="avatar round" style="background-image: url( avatar:@Friend.Id )" />
 	<div class="info">
-		<div class="name">@Friend.Name</div>
-		<div>
-			<div class="status">@StateString.Substring(0, Math.Min(StateString.Length, 36))</div>
-		</div>
+		<label class="name">@Friend.Name</label>
+		<label class="status">@StateString.Substring(0, Math.Min(StateString.Length, 36))</label>
 	</div>
 	<div class="actions">
 		@if ( Joinable )
 		{
-            <div class="button-simple" onclick=@JoinGame><i>sports_kabaddi</i><span class="text">join</span></div>
+			<div class="action join" onclick=@JoinGame><label>Join</label></div>
 		}
-        @*
-		<div class="button-simple" tooltip="Invite To Party" onclick=@InviteToParty>
-			<i>group_add</i>
-		</div>
-        *@
-    </div>
+		else if ( IsGenuinelyFull )
+		{
+			<div class="action deny"><label>Full</label></div>
+		}
+
+		@if ( CanInviteToParty )
+		{
+			<div class="action @(InviteOnCooldown ? "disabled" : "")" onclick=@InviteToParty><label>Invite</label></div>
+		}
+	</div>
 </root>
 
 @code
@@ -32,6 +35,30 @@
     public Friend Friend { get; set; }
 
     public bool Joinable => !string.IsNullOrEmpty(Friend.GetRichPresence("connect"));
+
+    /// <summary>
+    /// Only show "Full" if this is genuinely a multiplayer game (MaxPlayers > 1) that the friend
+    /// isn't joinable for - not just because it's a singleplayer game or some other reason.
+    /// </summary>
+    public bool IsGenuinelyFull
+    {
+        get
+        {
+            if ( !Friend.IsPlayingThisGame ) return false;
+            if ( Joinable ) return false;
+
+            var gameIdent = Friend.GetRichPresence("gamename");
+            if ( string.IsNullOrEmpty(gameIdent) ) return false;
+            if ( !Package.TryGetCached(gameIdent, out var package) ) return false;
+
+            return package.Info.MaxPlayers > 1;
+        }
+    }
+
+    public bool CanInviteToParty => MenuUtility.CanInviteToParty(Friend);
+
+    RealTimeUntil timeUntilCanInvite = 0;
+    bool InviteOnCooldown => timeUntilCanInvite > 0;
 
     public string CssClasses
     {	
@@ -53,8 +80,8 @@
                 var game = Friend.GetRichPresence("gametitle");
                 var map = Friend.GetRichPresence("map");
 
-                if (string.IsNullOrEmpty(game)) return "[Unknown State]";
-                if (game == "menu") return "Main Menu"; // (Idle)
+                // Steam clears gametitle while the friend is in the main menu.
+                if (string.IsNullOrWhiteSpace(game) || game == "menu") return "Main Menu";
                 if (string.IsNullOrWhiteSpace(map)) return $"Playing {game}";
                 return $"Playing {game} - {map}";
             }
@@ -76,13 +103,28 @@
         StateHasChanged();
     }
 
-    public void JoinGame()
+    public void JoinGame( PanelEvent e )
     {
+        e.StopPropagation();
         MenuUtility.JoinFriendGame(Friend);
     }
 
+    async void InviteToParty( PanelEvent e )
+    {
+        e.StopPropagation();
+        if ( InviteOnCooldown ) return;
+
+        Sound.Play( "ui.button.press" );
+        timeUntilCanInvite = 5;
+
+        // Through PartyInvites, so the deck holds them a seat and the friends list shows it's pending
+        await PartyInvites.Invite( Friend.Id );
+    }
+
+    protected override int BuildHash() => HashCode.Combine( InviteOnCooldown );
+
     void ShowFriendPopup()
     {
-        FriendPopup.Show(this, Friend, Popup.PositionMode.AboveCenter );
+        FriendCard.Show(this, Friend, Popup.PositionMode.Right, 20);
     }
 }

@@ -1,4 +1,4 @@
-using Sandbox.Network;
+﻿using Sandbox.Network;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
@@ -8,8 +8,22 @@ namespace Sandbox;
 /// A connection, usually to a server or a client.
 /// </summary>
 [Expose, ActionGraphIgnore]
-public abstract partial class Connection
+public abstract partial class Connection : BytePack.ISerializer
 {
+	/// <summary>
+	/// Travels as its id and resolves to the receiver's connection object.
+	/// </summary>
+	static void BytePack.ISerializer.BytePackWrite( object value, ref ByteStream bs )
+	{
+		bs.Write( value is Connection connection ? connection.Id : Guid.Empty );
+	}
+
+	static object BytePack.ISerializer.BytePackRead( ref ByteStream bs, Type targetType )
+	{
+		var id = bs.Read<Guid>();
+		return id == Guid.Empty ? null : Find( id );
+	}
+
 	internal abstract void InternalSend( byte[] data, NetFlags flags );
 	internal abstract void InternalRecv( NetworkSystem.MessageHandler handler );
 	internal abstract void InternalClose( int closeCode, string closeReason );
@@ -181,7 +195,9 @@ public abstract partial class Connection
 	/// </summary>
 	/// <seealso cref="DisplayName"/>
 	[ActionGraphInclude]
-	public string Name => Info?.Name ?? "Unknown Player";
+	public string Name => Preferences.StreamerMode
+		? Utility.Steam.GetAnonymousName( SteamId )
+		: Info?.Name ?? "Unknown Player";
 
 	[ActionGraphInclude]
 	public virtual float Time => 0.0f;
@@ -190,7 +206,12 @@ public abstract partial class Connection
 	public virtual string Address => "unknown";
 
 	[ActionGraphInclude]
-	public virtual bool IsHost => false;
+	public virtual bool IsHost => System is not null && System.HostConnection == this;
+
+	/// <summary>
+	/// True if this connection was established and has since dropped.
+	/// </summary>
+	internal virtual bool IsConnectionLost => false;
 
 	/// <summary>
 	/// True if this channel is still currently connecting.
@@ -338,9 +359,19 @@ public abstract partial class Connection
 
 	internal virtual void Send( byte[] encoded, NetFlags flags )
 	{
+		if ( sendsClosed )
+		{
+			return;
+		}
+		if ( pendingSends.Count > 0 )
+		{
+			QueueSend( Task.FromResult( CreatePackets( encoded, flags ) ), flags );
+			return;
+		}
+
 		var isReliable = (flags & NetFlags.Reliable) != 0;
 
-		if ( !isReliable || encoded.Length < MaxChunkSize )
+		if ( !isReliable || encoded.Length <= MaxChunkSize )
 		{
 			InternalSend( encoded, flags );
 			return;
@@ -372,6 +403,15 @@ public abstract partial class Connection
 
 	internal void Close( int reasonCode, string reasonString )
 	{
+		if ( sendsClosed )
+		{
+			return;
+		}
+		sendsClosed = true;
+		snapshotCancellation?.Cancel();
+		snapshotCancellation?.Dispose();
+		snapshotCancellation = null;
+		pendingSends.Clear();
 		_chunkBufferLength = -1;
 		InternalClose( reasonCode, reasonString );
 	}

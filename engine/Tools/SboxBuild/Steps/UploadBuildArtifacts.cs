@@ -17,12 +17,17 @@ internal class UploadBuildArtifacts
 	private static readonly string[] IncludeGlobs =
 	{
 		"*.exe",
-		"*.dll",
-		"*.json",
+		"sbox",
+		"sbox-dev",
+		"sbox-launcher",
+		"sbox-server",
+		"benchmark",
 		".version",
 		"thirdpartylegalnotices.txt",
 		"thirdpartylegalnotices/**",
 		"bin/win64/**",
+		"bin/linuxsteamrt64/**",
+		"bin/osxarm64/**",
 		"bin/managed/**",
 		"bin/assettypes.txt",
 		"bin/enginetools.txt",
@@ -75,7 +80,13 @@ internal class UploadBuildArtifacts
 		"core/**/*.meta",
 		"core/debug/**/*.tga",
 		"core/dev/**/*.tga",
-		"core/materials/**/*.png",
+		// Keep directly loaded gizmo and editor tool PNGs; exclude material compiler inputs.
+		"core/materials/default/**/*.png",
+		"core/materials/dev/**/*.png",
+		"core/materials/editor/**/*.png",
+		"core/materials/models/**/*.png",
+		"core/materials/postprocess/**/*.png",
+		"core/materials/tools/new/**/*.png",
 		"core/textures/**/*.png",
 
 		// core/sounds - allow core/sounds/editor/*.wav, strip the rest of the raws
@@ -250,49 +261,90 @@ internal class UploadBuildArtifacts
 		return files;
 	}
 
-	private static void CreateArchive( IReadOnlyCollection<(string EntryPath, string AbsolutePath)> files, string zipPath )
+	internal static void CreateArchive( IReadOnlyCollection<(string EntryPath, string AbsolutePath)> files, string zipPath )
 	{
 		if ( File.Exists( zipPath ) )
 			File.Delete( zipPath );
 
 		Log.Info( $"Creating build archive ({files.Count} file(s))..." );
 
-		using var archive = ZipFile.Open( zipPath, ZipArchiveMode.Create );
-		foreach ( var (entryPath, absolutePath) in files )
+		using ( var archive = ZipFile.Open( zipPath, ZipArchiveMode.Create ) )
 		{
-			archive.CreateEntryFromFile( absolutePath, entryPath, CompressionLevel.Fastest );
+			foreach ( var (entryPath, absolutePath) in files )
+			{
+				archive.CreateEntryFromFile( absolutePath, entryPath, CompressionLevel.Fastest );
+			}
 		}
 	}
 
+	/// <summary>
+	/// R2 only allows one concurrent write to a given object name, so the multipart
+	/// parts have to go up one at a time - uploading them in parallel (the SDK default
+	/// is 10) gets rejected with "Reduce your concurrent request rate for the same object".
+	/// https://developers.cloudflare.com/r2/platform/limits/
+	/// </summary>
+	private const int UploadConcurrency = 1;
+
+	/// <summary>
+	/// Serial parts means we want as few of them as possible: a ~5GB archive is ~40
+	/// requests at 128MiB rather than ~1000 at the SDK's 5MiB default.
+	/// </summary>
+	private const long UploadPartSize = 128 * 1024 * 1024;
+
 	private static bool UploadZip( IAmazonS3 s3, string bucket, string zipPath, string key )
 	{
-		Log.Info( $"Uploading build artifact to {key}..." );
+		const int attempts = 3;
 
-		try
+		for ( var attempt = 1; attempt <= attempts; attempt++ )
 		{
-			// TransferUtility handles multipart upload + retries for large archives.
-			using var transfer = new TransferUtility( s3 );
-			var request = new TransferUtilityUploadRequest
+			Log.Info( $"Uploading build artifact to {key}..." );
+
+			try
 			{
-				BucketName = bucket,
-				Key = key,
-				FilePath = zipPath,
-				ContentType = "application/zip",
-				// R2 doesn't implement Streaming SigV4 (the SDK's default for upload bodies):
-				// "STREAMING-AWS4-HMAC-SHA256-PAYLOAD not implemented". Disable payload signing
-				// (and the default checksum) - TransferUtility propagates both to each part upload.
-				DisablePayloadSigning = true,
-				DisableDefaultChecksumValidation = true
-			};
+				// TransferUtility handles multipart upload + retries for large archives.
+				using var transfer = new TransferUtility( s3, new TransferUtilityConfig
+				{
+					ConcurrentServiceRequests = UploadConcurrency
+				} );
 
-			transfer.UploadAsync( request ).GetAwaiter().GetResult();
-			return true;
+				var request = new TransferUtilityUploadRequest
+				{
+					BucketName = bucket,
+					Key = key,
+					FilePath = zipPath,
+					ContentType = "application/zip",
+					PartSize = UploadPartSize,
+					// R2 doesn't implement Streaming SigV4 (the SDK's default for upload bodies):
+					// "STREAMING-AWS4-HMAC-SHA256-PAYLOAD not implemented". Disable payload signing
+					// (and the default checksum) - TransferUtility propagates both to each part upload.
+					DisablePayloadSigning = true,
+					DisableDefaultChecksumValidation = true
+				};
+
+				transfer.UploadAsync( request ).GetAwaiter().GetResult();
+				return true;
+			}
+			catch ( Exception ex )
+			{
+				var detail = ex is AmazonS3Exception s3Ex
+					? $"{s3Ex.Message} (code {s3Ex.ErrorCode}, http {(int)s3Ex.StatusCode})"
+					: ex.Message;
+
+				if ( attempt == attempts )
+				{
+					Log.Error( $"Failed to upload build artifact to {key}: {detail}" );
+					return false;
+				}
+
+				// Throttling and transient R2 errors are worth another go - the archive is
+				// already on disk, so the only cost is the re-upload.
+				var backoff = TimeSpan.FromSeconds( 15 * attempt );
+				Log.Warning( $"Upload attempt {attempt}/{attempts} failed: {detail} - retrying in {backoff.TotalSeconds:0}s" );
+				Thread.Sleep( backoff );
+			}
 		}
-		catch ( Exception ex )
-		{
-			Log.Error( $"Failed to upload build artifact to {key}: {ex.Message}" );
-			return false;
-		}
+
+		return false;
 	}
 
 	/// <summary>

@@ -1,8 +1,10 @@
-﻿using NativeEngine;
+﻿using System;
+using NativeEngine;
+using Sandbox.Helpers;
 
 namespace Editor;
 
-public class EditorMainWindow : DockWindow
+public class EditorMainWindow : DockWindow, IUndoSystemProvider
 {
 	internal static EditorMainWindow Current;
 
@@ -248,39 +250,43 @@ public class EditorMainWindow : DockWindow
 		CodeEditor.OpenSolution();
 	}
 
+	IUndoSystem IUndoSystemProvider.UndoSystem => SceneEditorSession.Active?.UndoSystem;
+
 	[Shortcut( "editor.undo", "CTRL+Z", ShortcutType.Window )]
 	static void Undo()
 	{
-		using ( SceneEditorSession.Scope() )
-		{
-			if ( SceneEditorSession.Active.IsUndoScopeOpen )
-			{
-				if ( EditorPreferences.UndoSounds )
-				{
-					EditorUtility.PlayRawSound( "sounds/editor/fail.wav" );
-				}
+		if ( SceneEditorSession.Active is not { } session ) return;
 
-				return;
-			}
-			SceneEditorSession.Active.UndoSystem.Undo();
+		if ( session.IsUndoScopeOpen )
+		{
+			session.FailUndoRedo();
+			return;
+		}
+
+		using var scope = session.Scene.Push();
+
+		if ( IUndoSystem.Undo( EditorWindow ) )
+		{
+			session.SucceedUndoRedo();
 		}
 	}
 
 	[Shortcut( "editor.redo", "CTRL+Y", ShortcutType.Window )]
 	static void Redo()
 	{
-		using ( SceneEditorSession.Scope() )
-		{
-			if ( SceneEditorSession.Active.IsUndoScopeOpen )
-			{
-				if ( EditorPreferences.UndoSounds )
-				{
-					EditorUtility.PlayRawSound( "sounds/editor/fail.wav" );
-				}
+		if ( SceneEditorSession.Active is not { } session ) return;
 
-				return;
-			}
-			SceneEditorSession.Active.UndoSystem.Redo();
+		if ( session.IsUndoScopeOpen )
+		{
+			session.FailUndoRedo();
+			return;
+		}
+
+		using var scope = session.Scene.Push();
+
+		if ( IUndoSystem.Redo( EditorWindow ) )
+		{
+			session.SucceedUndoRedo();
 		}
 	}
 
@@ -329,7 +335,7 @@ public class EditorMainWindow : DockWindow
 		// holds OS focus when wrapped, so register right after showing - before the layout restore below
 		// hands focus to a native dock child (e.g. a viewport).
 		NativeEngine.InputSystem.RegisterWindowWithSDL( _widget.winId() );
-		NativeEngine.InputSystem.SetEditorMainWindow( _widget.winId() );
+		Sandbox.Engine.WindowInput.SetEditorMainWindow( _widget.winId() );
 
 		// This will attempt to restore the last used layout (or default layout if first time)
 		// Which means it will create dock widgets and move them around
@@ -415,7 +421,8 @@ public class EditorMainWindow : DockWindow
 
 		foreach ( var tool in EngineTools.All )
 		{
-			var option = AppsMenu.AddOption( tool.Name, tool.Icon, () => EngineTools.ShowTool( tool.Name ) );
+			var option = AppsMenu.AddOption( tool.Name, tool.Icon, () => EngineTools.ShowTool( tool ) );
+			option.Enabled = EngineTools.IsAvailable( tool.Library );
 			option.StatusTip = tool.Description;
 			option.ToolTip = $"{tool.Name} - {tool.Description}";
 		}

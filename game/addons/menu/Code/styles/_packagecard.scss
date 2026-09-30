@@ -1,0 +1,302 @@
+@import "/styles/_front.scss";
+
+// Landscape tiles: art fills the tile, title and live count sit over its foot on a scrim.
+// A mixin because "&.default, &.wide" nests as "PackageCard.default, PackageCard.wide column".
+@mixin landscape-band
+{
+	// The art is the whole card - no outline round it, which just reads as a see-through rim
+	border-width: 0;
+
+	.image
+	{
+		border-radius: $front-radius;
+	}
+
+	// Out-ranks the card's own hover below. No grow - it lifts: up a few pixels, its shadow
+	// deepening under it as if it's come off the page. The title goes white
+	&.package-card:not(.list):hover
+	{
+		transform: translateY( -4px );
+		box-shadow: 0 14px 30px rgba( black, 0.65 );
+	}
+
+	column
+	{
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+		padding: 28px 12px 9px 12px;
+		background-color: transparent;
+		background-image: linear-gradient( 0deg, rgba( 0, 0, 0, 0.6 ) 30%, rgba( 0, 0, 0, 0 ) );
+		pointer-events: none;
+
+		&::after
+		{
+			display: none;
+		}
+	}
+
+	.package-title
+	{
+		flex-grow: 1;
+		flex-shrink: 1;
+		min-width: 0;
+		font-size: 13.5px;
+		color: #ffffff;
+		text-shadow: 0 1px 2px rgba( 0, 0, 0, 0.7 );
+	}
+
+	.package-meta
+	{
+		flex-shrink: 0;
+		gap: 0;
+	}
+
+	// Only the live count - the rating and all-time players are on the hover card
+	.package-stat
+	{
+		display: none;
+
+		&.live
+		{
+			display: flex;
+		}
+
+		label
+		{
+			font-size: 11px;
+			text-shadow: 0 1px 2px rgba( 0, 0, 0, 0.7 );
+		}
+	}
+}
+
+//
+// The front page's tile look, applied to the shared PackageCard. PackageCard lives in
+// the base addon and can't import these tokens, so the menu dresses it from here -
+// stylesheets are global, so this reaches every card the menu renders.
+//
+// The image-on-top variants get the full treatment. .list is a horizontal row and
+// keeps its own layout; only its colours are touched.
+//
+
+PackageCard
+{
+	font-family: $front-font;
+
+	.package-nominations
+	{
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		align-items: center;
+		gap: 5px;
+		padding: 4px 7px;
+		border-radius: 5px;
+		background-color: $front-tile-bar;
+		color: $front-heading;
+
+		icon
+		{
+			font-size: 14px;
+			color: $front-trophy;
+		}
+
+		label
+		{
+			font-size: 11px;
+			font-weight: 600;
+		}
+	}
+
+	// The rails' outline - the same hairline round every panel
+	border: $front-border-width solid $front-border;
+	border-radius: $front-radius;
+	overflow: hidden;
+	transition: all 0.12s ease;
+
+	.image
+	{
+		flex-shrink: 0;
+		overflow: hidden;
+		// Its own rounding, not just the card's - overflow here clips children to this
+		// box, so without it the hover video renders square corners over rounded art.
+		border-radius: $front-radius $front-radius 0 0;
+		border: 0;
+		// Darker than the page, so art-less cards read as intentional.
+		background-color: #0B0D14;
+		transition: all 0.12s ease;
+		background-tint: white;
+	}
+
+	.package-video
+	{
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background-size: cover;
+		background-position: center;
+		pointer-events: none;
+
+		// The still art is underneath, so fading crossfades into it instead of cutting.
+		opacity: 1;
+		transition: opacity 0.4s ease-out;
+
+		&:intro
+		{
+			opacity: 0;
+		}
+
+		&:outro
+		{
+			opacity: 0;
+			transition: opacity 0.3s ease-in;
+		}
+	}
+
+	// A band below the art - the art stays unobstructed. The rails' fill and paper texture, so the
+	// cards read as the same material as the panels round them
+	column
+	{
+		position: relative;
+		flex-direction: column;
+		flex-shrink: 0;
+		gap: 4px;
+		padding: 9px 12px 11px 12px;
+		background-color: $front-card;
+		background-image: linear-gradient( 180deg, $front-card-top, $front-card-bottom );
+
+		@include front-grain;
+	}
+
+	.package-title
+	{
+		font-size: 14px;
+		font-weight: 600;
+		color: $front-heading;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	&.default { @include landscape-band; }
+	&.wide { @include landscape-band; }
+
+	// Icon+number pairs read as one unit, with clear air between the pairs.
+	.package-meta
+	{
+		flex-direction: row;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.package-stat
+	{
+		flex-direction: row;
+		align-items: center;
+		flex-shrink: 0;
+		gap: 5px;
+
+		icon
+		{
+			font-size: 12px;
+			color: $front-secondary;
+		}
+
+		label
+		{
+			font-size: 12px;
+			font-weight: 500;
+			letter-spacing: 0;
+			text-transform: none;
+			color: $front-secondary;
+		}
+
+		.live-dot
+		{
+			width: 6px;
+			height: 6px;
+			border-radius: 3px;
+			background-color: $front-accent;
+		}
+
+		&.live label
+		{
+			color: $front-accent;
+		}
+	}
+
+	// The base card's grey hover plate (its ::after) - gone for good, not just while hovered. Hidden
+	// only on hover, it came back the moment the pointer left and faded out from grey, a flash of
+	// background behind the card on every unhover
+	&.package-card:not(.list)::after
+	{
+		display: none;
+	}
+
+	// Hover = a small lift. The extra class out-ranks the base :not(.list):hover scale/fill.
+	&.package-card:not(.list):hover
+	{
+		border-color: rgba( 255, 255, 255, 0.16 );
+		box-shadow: 0 10px 30px rgba( black, 0.6 );
+		// No grow for now - out-ranks the base card's scale up too
+		transform: none;
+		background-color: transparent;
+		z-index: 100;
+
+		// Tints past 1.0 bloom.
+		.image
+		{
+			background-tint: white;
+		}
+
+		.package-title
+		{
+			color: #ffffff;
+		}
+	}
+
+	&.package-card:not(.list):active
+	{
+		transform: scale( 1.0 );
+	}
+
+	// A row, not a tile - no art band, no rounding on the image's bottom corners.
+	&.list
+	{
+		border-radius: $front-radius;
+
+		.image
+		{
+			border-radius: $front-radius;
+		}
+
+		column
+		{
+			background-color: transparent;
+			background-image: none;
+			padding: 0;
+			justify-content: center;
+
+			&::after
+			{
+				display: none;
+			}
+		}
+
+		// A row sits in a list, not on its own - no outline until it's pointed at
+		border-color: transparent;
+
+		&:hover
+		{
+			border-color: $front-hairline;
+			box-shadow: none;
+			background-color: rgba( 255, 255, 255, 0.05 );
+		}
+	}
+}
