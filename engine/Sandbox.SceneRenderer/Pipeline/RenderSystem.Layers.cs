@@ -40,7 +40,6 @@ public sealed partial class RenderSystem
 			// Quarter-resolution bloom with scene-depth occlusion.
 			new QuarterDepthDownsampleLayer( bloom ),
 			bloom,
-			new BloomBlurLayer( bloom ),
 
 			// Glass depth for the frame-copy mask.
 			new RefractionStencilLayer(),
@@ -94,7 +93,7 @@ public sealed partial class RenderSystem
 	}
 
 	/// <summary>
-	/// Skybox pipeline: prepass, forward, unfaded translucency, then 2D sky (<c>Skybox3DPipeline</c>).
+	/// Skybox pipeline: prepass, forward, unfaded translucency, then 2D sky (<see cref="Native.Skybox3DPipeline"/>).
 	/// </summary>
 	static RenderLayer[] SkyboxLayers() =>
 	[
