@@ -30,6 +30,11 @@ internal static partial class PackageManager
 	}
 
 	public static BaseFileSystem MountedFileSystem { get; private set; } = new AggregateFileSystem();
+
+	/// <summary>
+	/// Goes up whenever a package's files are mounted or unmounted, so a reset can tell nothing's changed since the last.
+	/// </summary>
+	internal static int MountGeneration;
 	public static HashSet<ActivePackage> ActivePackages { get; private set; } = new HashSet<ActivePackage>();
 
 	/// <summary>
@@ -108,8 +113,8 @@ internal static partial class PackageManager
 		}
 
 		//
-		// Prefer precompiled dlls (backend-compiled, downloaded from the manifest). If a
-		// remote package doesn't ship any, fall back to compiling its code archives locally.
+		// Games mount the dlls the backend compiled for them. Everything else, and a game whose
+		// backend compile isn't ready, compiles its code archives here.
 		//
 		if ( package.IsRemote && !ap.HasPrecompiledDlls() )
 		{

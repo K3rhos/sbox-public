@@ -41,7 +41,7 @@ internal static class Upscaler
 	/// Upscale <paramref name="color"/>, rendered into <paramref name="lowResViewport"/>, into the setup's full resolution
 	/// colour.
 	/// </summary>
-	public static void Add( CRenderPipelineSetup setup, SceneViewRenderTargetHandle color, RenderViewport lowResViewport )
+	public static void Add( CRenderPipelineSetup setup, SceneViewRenderTargetHandle color, RenderViewport lowResViewport, UpscaleDepthLayer depthLayer )
 	{
 		var view = setup.m_pView;
 		var fullResViewport = setup.m_upscaleViewport;
@@ -66,6 +66,7 @@ internal static class Upscaler
 
 			case Stretch:
 			default:
+				// Sampling an MSAA color target without MSAA automatically resolves it before the blit.
 				var blit = view.AddBlitTextureToTargetLayer( "Stretch Upscale", color, lowResViewport, fullResViewport, output, setup.m_colorSpace );
 
 				// A full-target blit discards, but the layer above already did: a second discard on a write that isn't the
@@ -73,6 +74,10 @@ internal static class Upscaler
 				blit.m_nLayerFlags &= ~LayerFlags.DiscardColorBuffers;
 				break;
 		}
+
+		depthLayer.Setup( setup.m_hDepth, setup.m_hUpscaleDepth, setup.m_nMSAA != RenderMultisampleType.RENDER_MULTISAMPLE_NONE,
+			new Vector2( (float)setup.m_nUpscaleRenderWidth / setup.m_nWidth, (float)setup.m_nUpscaleRenderHeight / setup.m_nHeight ) );
+		depthLayer.AddToView( view, fullResViewport );
 	}
 
 	/// <summary>
@@ -167,8 +172,13 @@ internal static class QuadOverdraw
 	static void ClearCounters( ManagedRenderSetup_t setup )
 	{
 		var attributes = setup.sceneView.GetRenderAttributesPtr();
-		setup.renderContext.ClearTextureUint( attributes.GetTextureValue( Counters, default ), 0 );
-		setup.renderContext.ClearTextureUint( attributes.GetTextureValue( Locks, default ), 0xffffffff );
+		// Each getter hands back a new strong handle
+		var counters = attributes.GetTextureValue( Counters, default );
+		var locks = attributes.GetTextureValue( Locks, default );
+		setup.renderContext.ClearTextureUint( counters, 0 );
+		setup.renderContext.ClearTextureUint( locks, 0xffffffff );
+		counters.DestroyStrongHandle();
+		locks.DestroyStrongHandle();
 	}
 
 	static void Draw( ManagedRenderSetup_t setup )

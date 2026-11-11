@@ -71,6 +71,12 @@ internal static partial class Ugc
 	const double StartGrace = 15.0;
 
 	/// <summary>
+	/// How old an answer Steam can give when checking an installed item is the latest. A load asks twice in a few
+	/// seconds, prefetching then installing, and each fresh query took a third of a second.
+	/// </summary>
+	const int OutdatedCheckAge = 30;
+
+	/// <summary>
 	/// Get what Steam knows about this item, without downloading anything. Null if there's no Steam.
 	/// </summary>
 	internal static ItemInfo GetItem( ulong id )
@@ -113,14 +119,13 @@ internal static partial class Ugc
 
 			if ( !RequestDownload( id ) )
 			{
-				if ( item.IsInstalled ) return item.InstallFolder;
-
+				// Still a failed download, even with an older version to carry on with
 				FailDownload( id, CouldntStart );
-				return null;
+				return item.IsInstalled ? item.InstallFolder : null;
 			}
 
-			// Steam marks it pending as soon as we ask for it, so wait until that's cleared - unless it stops
-			// moving, Steam never gives up on a download by itself
+			// Steam marks it pending as soon as we ask for it, so wait until that's cleared - unless Steam says
+			// how it went, or it stops moving
 			var lastBytes = item.BytesDownloaded;
 			var lastMoved = RealTime.NowDouble;
 			var asked = RealTime.NowDouble;
@@ -133,6 +138,11 @@ internal static partial class Ugc
 				if ( item is null ) return null;
 
 				progress?.Invoke( item );
+
+				// Steam's said how it went. After a failure it can keep the item marked as downloading, with nothing
+				// coming - that'd hold us here until it counted as stalled.
+				if ( !requested.Contains( id ) )
+					break;
 
 				if ( item.BytesDownloaded != lastBytes )
 				{
@@ -338,7 +348,7 @@ internal static partial class Ugc
 	{
 		if ( !item.IsInstalled ) return false;
 
-		var latest = await Workshop.FetchAsync( [item.PublishedFileId], token, 0 );
+		var latest = await Workshop.FetchAsync( [item.PublishedFileId], token, OutdatedCheckAge );
 		return latest.Length > 0 && IsOutdated( item, latest[0] );
 	}
 

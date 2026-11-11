@@ -146,6 +146,10 @@ public class AppSystem
 			Console.WriteLine( $"Error: ({e.GetType()}) {e.Message}" );
 
 			CrashShutdown();
+
+			// Only get here if native interop never came up, so Plat_ExitProcess wasn't available.
+			// Rethrow so the real startup error is what the runtime reports.
+			throw;
 		}
 	}
 
@@ -159,6 +163,7 @@ public class AppSystem
 	/// <summary>
 	/// Emergency shutdown for crash scenarios. Uses Plat_ExitProcess to immediately
 	/// terminate without running finalizers, DLL destructors, or creating dumps.
+	/// Returns if native interop isn't initialized, so the caller can let the exception propagate.
 	/// </summary>
 	void CrashShutdown()
 	{
@@ -176,7 +181,7 @@ public class AppSystem
 
 		try { NLog.LogManager.Shutdown(); } catch { }
 
-		NativeEngine.EngineGlobal.Plat_ExitProcess( 1 );
+		try { NativeEngine.EngineGlobal.Plat_ExitProcess( 1 ); } catch { }
 	}
 
 	public virtual void Shutdown()
@@ -219,6 +224,9 @@ public class AppSystem
 		SoundHandle.Shutdown();
 		DedicatedServer.Shutdown();
 
+		// Game and menu code can keep scenes alive in statics, along with the models and textures they draw
+		Scene.DestroyAll();
+
 		// Flush queued scene object/world deletes that normally run at
 		// end-of-frame. During shutdown no frame is rendered, so native
 		// never fires FreeHandle for these — leaving HandleIndex entries
@@ -227,6 +235,7 @@ public class AppSystem
 
 		Engine.InputRouter.Shutdown();
 		Diagnostics.Logging.ClearListeners();
+		MenuUtility.ClearLoggers();
 
 		// Flush mount utility preview cache — holds strong refs to textures
 		Mounting.MountUtility.FlushCache();
@@ -261,6 +270,7 @@ public class AppSystem
 				continue;
 
 			ReflectionUtility.NullStaticReferencesOfType( asm, typeof( Texture ) );
+			ReflectionUtility.NullStaticReferencesOfType( asm, typeof( GpuBuffer ) );
 			ReflectionUtility.NullStaticReferencesOfType( asm, typeof( Model ) );
 			ReflectionUtility.NullStaticReferencesOfType( asm, typeof( Material ) );
 			ReflectionUtility.NullStaticReferencesOfType( asm, typeof( ComputeShader ) );
@@ -274,6 +284,7 @@ public class AppSystem
 
 		// Renderpipeline may hold onto native resources, clear them out
 		RenderPipeline.Shutdown();
+		ShadowMapperCallbacks.Shutdown();
 
 		// So may the managed scene renderer, if r_managed_scene loaded it
 		Rendering.ManagedSceneRendering.Shutdown();
@@ -311,9 +322,11 @@ public class AppSystem
 		GC.WaitForPendingFinalizers();
 
 		NativeResourceCache.HandleShutdownLeaks();
+		MainThread.RunQueues();
+		SceneWorld.FlushQueuedDeletes();
 
-		// print each scene that is leaked
-		foreach ( var leakedScene in Scene.All )
+		// Print each scene that is leaked
+		foreach ( var leakedScene in Scene.AllIncludingUnlisted )
 		{
 			log.Warning( $"Leaked scene {leakedScene.Id} during shutdown." );
 		}
@@ -363,6 +376,7 @@ public class AppSystem
 
 	protected void InitGame( AppSystemCreateInfo createInfo, string commandLine = null )
 	{
+		Bootstrap.StartStartupClock();
 		InstallRenderers();
 
 		commandLine ??= System.Environment.CommandLine;
@@ -401,14 +415,15 @@ public class AppSystem
 		}
 
 
-		startupWindow?.UpdateProgress( 0.02f, "Initializing Vulkan" );
+		Bootstrap.PrepareTypeLibraries();
+		startupWindow?.UpdateProgress( 0.05f, "Starting graphics" );
 		if ( !NativeEngine.EngineGlobal.SourceEnginePreInit( commandLine, _appSystem ) )
 		{
 			startupWindow?.Dispose();
 			throw new System.Exception( "SourceEnginePreInit failed" );
 		}
 		if ( !Application.IsInitialized ) Bootstrap.InitApplication( _appSystem );
-		startupWindow?.UpdateProgress( 0.04f, "Creating game window" );
+		startupWindow?.UpdateProgress( 0.16f, "Loading the engine" );
 
 		Bootstrap.PreInit( () =>
 		{
@@ -421,7 +436,6 @@ public class AppSystem
 
 			// Show the startup image before services initialize, and overlap their work with pipeline-cache loading.
 			_appSystem.StartBackgroundSystems();
-			SdlGamepads.Initialize();
 		} );
 
 		if ( createInfo.Flags.HasFlag( AppSystemFlags.IsStandaloneGame ) )
@@ -434,10 +448,11 @@ public class AppSystem
 			throw new System.Exception( "SourceEngineInit returned false" );
 		}
 
+		Bootstrap.BeginResourceScan();
 		gameWindow?.InitializeRendering();
-		gameWindow?.UpdateStartupProgress( 0.5f, "Loading materials" );
+		gameWindow?.UpdateStartupProgress( 0.22f, "Loading shaders" );
 		Bootstrap.Init();
-		gameWindow?.UpdateStartupProgress( 1.0f, "Ready" );
+		gameWindow?.UpdateStartupProgress( 0.4f, "Building the menu" );
 	}
 
 	protected void SetWindowTitle( string title )

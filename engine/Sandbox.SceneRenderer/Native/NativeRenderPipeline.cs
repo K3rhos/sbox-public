@@ -31,13 +31,13 @@ internal sealed class NativeRenderPipeline : INativeRenderPipeline
 
 	readonly ConcurrentQueue<StandardPipeline> standardPool = new();
 	readonly ConcurrentQueue<Skybox3DPipeline> skyboxPool = new();
-	readonly ConcurrentDictionary<IntPtr, object> active = new();
+	readonly Dictionary<IntPtr, object> active = new();
 
 	public void AddLayersToView( CRenderPipelineSetup setup )
 	{
 		if ( !standardPool.TryDequeue( out var pipeline ) ) pipeline = new();
 
-		active.TryAdd( setup.m_pView.self, pipeline );
+		lock ( active ) active.TryAdd( setup.m_pView.self, pipeline );
 		pipeline.AddLayersToView( setup );
 	}
 
@@ -45,17 +45,29 @@ internal sealed class NativeRenderPipeline : INativeRenderPipeline
 	{
 		if ( !skyboxPool.TryDequeue( out var pipeline ) ) pipeline = new();
 
-		active.TryAdd( setup.m_pView.self, pipeline );
+		lock ( active ) active.TryAdd( setup.m_pView.self, pipeline );
 		pipeline.AddLayersToView( setup );
 	}
 
 	public void OnSceneViewSubmitted( ISceneView view )
 	{
-		// Not every view is a pipeline's (shadow and other dependent views aren't)
-		if ( !active.TryRemove( view.self, out var pipeline ) ) return;
+		object pipeline;
+		lock ( active )
+		{
+			// Not every view is a pipeline's (shadow and other dependent views aren't)
+			if ( !active.Remove( view.self, out pipeline ) ) return;
+		}
 
-		if ( pipeline is StandardPipeline standard ) standardPool.Enqueue( standard );
-		else if ( pipeline is Skybox3DPipeline skybox ) skyboxPool.Enqueue( skybox );
+		switch ( pipeline )
+		{
+			case StandardPipeline standard:
+				standard.OnSubmitted( view );
+				standardPool.Enqueue( standard );
+				break;
+			case Skybox3DPipeline skybox:
+				skyboxPool.Enqueue( skybox );
+				break;
+		}
 	}
 
 	public ISceneLayer AddUIHook( string name, Stage stage, ISceneView view, RenderViewport viewport, SceneViewRenderTargetHandle color )
@@ -63,9 +75,11 @@ internal sealed class NativeRenderPipeline : INativeRenderPipeline
 
 	public void Shutdown()
 	{
+		foreach ( var pipeline in standardPool ) pipeline.Dispose();
+
 		standardPool.Clear();
 		skyboxPool.Clear();
-		active.Clear();
+		lock ( active ) active.Clear();
 	}
 
 	/// <summary>

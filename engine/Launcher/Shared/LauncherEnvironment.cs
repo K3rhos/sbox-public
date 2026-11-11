@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -55,16 +55,22 @@ public static class LauncherEnvironment
 		System.Environment.SetEnvironmentVariable( "FACEPUNCH_ENGINE", GamePath );
 
 		UpdateNativeDllPath( nativeDllPath );
+
+		// Don't update the user-level FACEPUNCH_ENGINE env var if we're running an exported standalone game!
+#if !SBOX_STANDALONE
 		_ = UpdateEnginePathAsync( GamePath );
+#endif
 	}
 
+	/// <summary>
+	/// Allows unit tests and csproj to find the engine path.
+	/// </summary>
 	private static async Task UpdateEnginePathAsync( string gamePath )
 	{
 		try
 		{
 			await Task.Run( () =>
 			{
-				// Allows unit tests and csproj to find the engine path.
 				if ( System.Environment.GetEnvironmentVariable( "FACEPUNCH_ENGINE", EnvironmentVariableTarget.User ) != gamePath )
 				{
 					System.Environment.SetEnvironmentVariable( "FACEPUNCH_ENGINE", gamePath, EnvironmentVariableTarget.User );
@@ -104,6 +110,14 @@ public static class LauncherEnvironment
 
 		// dlls with resources inside appear as a different name
 		name = name.Replace( ".resources.dll", ".dll" );
+
+		// Assembly names can come from untrusted code archives, never load from outside the managed folder
+		if ( string.IsNullOrEmpty( ManagedDllPath ) )
+			return null;
+
+		name = System.IO.Path.GetFullPath( name );
+		if ( !name.StartsWith( System.IO.Path.TrimEndingDirectorySeparator( System.IO.Path.GetFullPath( ManagedDllPath ) ) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase ) )
+			return null;
 
 		if ( System.IO.File.Exists( name ) )
 		{
